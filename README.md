@@ -3,9 +3,11 @@
 Tracks **new (Type 1) NIH awards by week**, refreshed daily from the
 [RePORTER API](https://api.reporter.nih.gov/) and corrected for RePORTER's reporting lag.
 
-Interactive dashboard: pick an institute and an award family to see FY2022–26 weekly
-awards, plus a comparison of every agency's FY2026 pace against its own recent history.
-A static PNG of the original NHLBI R01-equivalent question is also produced for slides.
+**→ [Live dashboard](https://08wparker.github.io/nih-award-tracker/)**
+
+Pick an institute and an award family to see FY2022–26 weekly awards, plus a comparison
+of every agency's FY2026 pace against its own recent history. A static PNG of the
+original NHLBI R01-equivalent question is also produced for slides.
 
 ![NHLBI R01-equivalent awards per week](nhlbi_r01_weekly_by_fy.png)
 
