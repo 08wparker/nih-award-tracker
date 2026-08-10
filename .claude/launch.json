@@ -1,0 +1,14 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "dashboard",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "/Users/williamparker/Desktop/fun_side_projects/NHLBI_R01_plot/scripts/serve.py",
+        "8777"
+      ],
+      "port": 8777
+    }
+  ]
+}

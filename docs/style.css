@@ -1,0 +1,193 @@
+/* Colour roles come from a validated palette: an ordinal blue ramp for the settled
+   baseline fiscal years, warm highlights for the two years of interest. Dark mode is a
+   selected set of steps for the dark surface, not an automatic inversion. */
+
+:root {
+  --surface-1: #fcfcfb;
+  --surface-2: #f5f4f1;
+  --surface-sunken: #f0efec;
+  --border: #e6e5e1;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted: #8a8880;
+
+  --fy-2022: #86b6ef;
+  --fy-2023: #2a78d6;
+  --fy-2024: #184f95;
+  --fy-2025: #d55181;
+  --fy-2026: #eb6834;
+
+  --accent: #2a78d6;
+  --good: #0ca30c;
+  --critical: #d03b3b;
+
+  --shadow: 0 1px 2px rgba(11, 11, 11, .06), 0 4px 16px rgba(11, 11, 11, .05);
+}
+
+[data-theme="dark"] {
+  --surface-1: #1a1a19;
+  --surface-2: #232322;
+  --surface-sunken: #383835;
+  --border: #3a3a37;
+  --text-primary: #ffffff;
+  --text-secondary: #c3c2b7;
+  --text-muted: #8f8e85;
+
+  --fy-2022: #cde2fb;
+  --fy-2023: #86b6ef;
+  --fy-2024: #3987e5;
+  --fy-2025: #e87ba4;
+  --fy-2026: #eb6834;
+
+  --accent: #3987e5;
+  --good: #0ca30c;
+  --critical: #e66767;
+
+  --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 4px 16px rgba(0, 0, 0, .3);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--surface-2);
+  color: var(--text-primary);
+  font: 15px/1.5 ui-sans-serif, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap { max-width: 1080px; margin: 0 auto; padding: 32px 20px 64px; }
+
+h1 { font-size: 26px; margin: 0 0 6px; letter-spacing: -.01em; }
+h2 { font-size: 17px; margin: 0; letter-spacing: -.01em; }
+
+.sub { margin: 0 0 10px; color: var(--text-secondary); max-width: 68ch; }
+.stamp { margin: 0; font-size: 13px; color: var(--text-muted); }
+.page-head { margin-bottom: 22px; }
+
+.ghost-btn {
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  border-radius: 7px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.ghost-btn:hover { border-color: var(--text-muted); color: var(--text-primary); }
+.stamp .ghost-btn { margin-left: 10px; }
+
+/* Filters sit in one row above the charts. */
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px 26px;
+  align-items: flex-end;
+  padding: 14px 16px;
+  margin-bottom: 18px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.control { display: flex; flex-direction: column; gap: 6px; }
+.control label, .control > span {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.control--check { align-self: flex-end; }
+
+select {
+  font: inherit;
+  padding: 7px 10px;
+  min-width: 240px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-1);
+  color: var(--text-primary);
+}
+
+.segmented { display: flex; gap: 4px; background: var(--surface-sunken); padding: 3px; border-radius: 8px; }
+.segmented button {
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.segmented button[aria-checked="true"] {
+  background: var(--surface-1);
+  color: var(--text-primary);
+  font-weight: 600;
+  box-shadow: var(--shadow);
+}
+
+.check { display: flex; align-items: center; gap: 7px; text-transform: none; letter-spacing: 0; font-weight: 400; font-size: 13.5px; color: var(--text-secondary); cursor: pointer; }
+.check input { accent-color: var(--accent); width: 15px; height: 15px; }
+
+.figure {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px 18px 14px;
+  margin-bottom: 20px;
+  box-shadow: var(--shadow);
+}
+.figure-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 10px; }
+.figure-sub { margin: 3px 0 0; font-size: 13px; color: var(--text-secondary); }
+
+.chart-holder { position: relative; }
+svg { display: block; width: 100%; overflow: visible; }
+
+/* Legend is always present for multi-series charts, so identity never rests on colour
+   alone; the crosshair tooltip names every series as a second channel. */
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 2px 0 10px; }
+.legend-item { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-secondary); cursor: pointer; user-select: none; }
+.legend-item[data-dimmed="true"] { opacity: .35; }
+.legend-swatch { width: 18px; height: 3px; border-radius: 2px; flex: none; }
+.legend-swatch--dashed { background: repeating-linear-gradient(90deg, currentColor 0 5px, transparent 5px 9px); height: 3px; }
+
+.note { font-size: 12.5px; color: var(--text-muted); margin: 10px 0 0; }
+
+.tooltip {
+  position: absolute;
+  pointer-events: none;
+  z-index: 5;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 11px;
+  font-size: 12.5px;
+  box-shadow: var(--shadow);
+  min-width: 168px;
+}
+.tooltip h4 { margin: 0 0 6px; font-size: 12.5px; color: var(--text-primary); }
+.tooltip table { border-collapse: collapse; width: 100%; }
+.tooltip td { padding: 1px 0; color: var(--text-secondary); }
+.tooltip td.v { text-align: right; padding-left: 14px; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.tooltip .sw { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; }
+.tooltip .muted { color: var(--text-muted); font-size: 11.5px; }
+
+/* Table view: the accessible fallback and the relief for sub-3:1 colours. */
+.table-view { margin-top: 12px; overflow-x: auto; }
+table.data { border-collapse: collapse; width: 100%; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+table.data th, table.data td { text-align: right; padding: 5px 8px; border-bottom: 1px solid var(--border); }
+table.data th:first-child, table.data td:first-child { text-align: left; }
+table.data thead th { color: var(--text-muted); font-weight: 600; text-transform: uppercase; font-size: 11px; letter-spacing: .04em; }
+table.data td.est { color: var(--text-secondary); font-style: italic; }
+
+.method p { color: var(--text-secondary); max-width: 74ch; margin: 8px 0; }
+.page-foot { margin-top: 26px; font-size: 12.5px; color: var(--text-muted); }
+.page-foot a { color: var(--text-secondary); }
+
+@media (max-width: 720px) {
+  .controls { flex-direction: column; align-items: stretch; }
+  select { min-width: 0; width: 100%; }
+}
