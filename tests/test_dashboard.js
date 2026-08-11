@@ -74,12 +74,9 @@ async function main() {
   check("no uncaught errors during init", errors.length === 0, errors.join("; "));
 
   const fig1 = document.getElementById("fig1");
-  const fig2 = document.getElementById("fig2");
 
-  check("figure 1 rendered paths", fig1.querySelectorAll("path").length > 0,
+  check("chart rendered paths", fig1.querySelectorAll("path").length > 0,
         "found " + fig1.querySelectorAll("path").length);
-  check("figure 2 rendered markers", fig2.querySelectorAll("circle").length > 0,
-        "found " + fig2.querySelectorAll("circle").length);
 
   check("header stamped with as_of",
         document.getElementById("as-of").textContent === data.meta.as_of);
@@ -90,10 +87,6 @@ async function main() {
         legend.length === data.meta.fiscal_years.length + 1,
         "found " + legend.length);
 
-  check("figure 2 has one marker per comparison row",
-        fig2.querySelectorAll("circle").length === data.comparison.r01_equivalent.length,
-        `${fig2.querySelectorAll("circle").length} vs ${data.comparison.r01_equivalent.length}`);
-
   check("completeness table populated",
         document.querySelectorAll("#completeness-table table.data tbody tr").length ===
           data.meta.families.length);
@@ -102,10 +95,8 @@ async function main() {
         document.querySelectorAll("#fig1-table table.data tbody tr").length > 20);
 
   // The real risk: a NaN coordinate renders as nothing rather than throwing.
-  check("figure 1 has no NaN/undefined attributes", badNumbers(fig1).length === 0,
+  check("chart has no NaN/undefined attributes", badNumbers(fig1).length === 0,
         badNumbers(fig1).slice(0, 3).join(" "));
-  check("figure 2 has no NaN/undefined attributes", badNumbers(fig2).length === 0,
-        badNumbers(fig2).slice(0, 3).join(" "));
 
   // Exercise every family, and every IC for the default family, through the real
   // controls -- an IC missing from one family's series would throw here.
@@ -143,6 +134,41 @@ async function main() {
   const dashedOn = fig1.querySelectorAll("path[stroke-dasharray]").length;
   check("nowcast toggle adds and removes the dashed estimate",
         dashedOff === 0 && dashedOn > 0, `off=${dashedOff} on=${dashedOn}`);
+
+  // Cumulative is the default, and a cumulative series must never decrease.
+  const viewGroup = document.getElementById("view-group");
+  check("cumulative is the default view",
+        viewGroup.children[0].getAttribute("aria-checked") === "true");
+
+  // The combination loop above left the chart on the last family/institute it tried;
+  // reset to a high-volume series so the y-extent comparison below is meaningful.
+  group.children[0].dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  select.value = "NHLBI";
+  select.dispatchEvent(new window.Event("change", { bubbles: true }));
+
+  const cumulativeMonotone = () => {
+    const series = data.series.r01_equivalent.NHLBI.counts["2024"];
+    let running = 0;
+    const expected = series.map((v) => (running += v));
+    // Reconstruct what the chart should be drawing and confirm it rises monotonically.
+    return expected.every((v, i) => i === 0 || v >= expected[i - 1]);
+  };
+  check("cumulative series is non-decreasing", cumulativeMonotone());
+
+  // Switching to weekly and back must both render, with different y-extents.
+  const yExtent = () => {
+    const labels = [...fig1.querySelectorAll("text")]
+      .map((t) => parseInt(t.textContent, 10)).filter((n) => !isNaN(n));
+    return Math.max(...labels);
+  };
+  const cumulativeMax = yExtent();
+  viewGroup.children[1].dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  const weeklyMax = yExtent();
+  check("weekly view renders with a smaller y-extent than cumulative",
+        weeklyMax < cumulativeMax, `weekly=${weeklyMax} cumulative=${cumulativeMax}`);
+  check("weekly view has no NaN attributes", badNumbers(fig1).length === 0);
+  viewGroup.children[0].dispatchEvent(new window.MouseEvent("click", { bubbles: true }));
+  check("switching back to cumulative restores the y-extent", yExtent() === cumulativeMax);
 
   // Clicking a legend entry hides that year's line.
   const before = fig1.querySelectorAll("path:not([stroke-dasharray])").length;

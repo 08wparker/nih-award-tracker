@@ -1,6 +1,5 @@
 """Turn the award-level store into weekly series, and into the dashboard's data.json."""
 
-import numpy as np
 import pandas as pd
 
 from . import fiscal, lag
@@ -86,67 +85,6 @@ def last_observed_week(prepared, fiscal_year):
     return int(rows["fiscal_week"].max())
 
 
-def pace_vs_baseline(prepared, curves, family, current_fy, baseline_fys, as_of):
-    """Per-IC FY-to-date pace against that IC's own recent history.
-
-    Raw counts are useless for comparing ICs -- NCI funds an order of magnitude more
-    R01s than NIDCD -- so each IC is scored against itself: lag-corrected awards so far
-    this year, divided by the mean awards those ICs had by the same fiscal week in the
-    baseline years. 1.0 means on pace, 0.6 means 40% behind.
-    """
-    edge = last_observed_week(prepared, current_fy)
-    if edge is None:
-        return []
-
-    rows = prepared[prepared["activity_code"].isin(FAMILIES[family])]
-    curve = curves[family]["curve"]
-
-    out = []
-    for ic in sorted(set(rows["ic"].dropna())):
-        ic_rows = rows[rows["ic"] == ic]
-
-        current = ic_rows[
-            (ic_rows["fiscal_year"] == current_fy) & (ic_rows["fiscal_week"] <= edge)
-        ]
-        observed = int(len(current))
-
-        # Correct each week individually, then sum: completeness varies sharply across
-        # the weeks in the window, so scaling the total by one factor would be wrong.
-        by_week = current.groupby("fiscal_week")["appl_id"].count()
-        corrected = 0.0
-        for week in range(1, edge + 1):
-            count = int(by_week.get(week, 0))
-            frac = lag.expected_fraction(curve, current_fy, week, as_of)
-            corrected += count / frac if frac >= lag.MASK_BELOW else count
-
-        baselines = []
-        for fy in baseline_fys:
-            prior = ic_rows[
-                (ic_rows["fiscal_year"] == fy) & (ic_rows["fiscal_week"] <= edge)
-            ]
-            baselines.append(len(prior))
-        baseline = float(np.mean(baselines)) if baselines else 0.0
-
-        # Tiny programmes produce meaningless ratios; keep them out of the chart.
-        if baseline < 5:
-            continue
-
-        out.append({
-            "ic": ic,
-            "observed": observed,
-            "corrected": round(corrected, 1),
-            "baseline": round(baseline, 1),
-            "pace": round(corrected / baseline, 3),
-            "raw_pace": round(observed / baseline, 3),
-            "baseline_by_year": {str(fy): int(len(ic_rows[
-                (ic_rows["fiscal_year"] == fy) & (ic_rows["fiscal_week"] <= edge)
-            ])) for fy in baseline_fys},
-        })
-
-    out.sort(key=lambda r: r["pace"])
-    return out
-
-
 def build_dashboard_data(awards, as_of, fiscal_years, min_ic_awards=25):
     """Assemble everything docs/index.html needs, as one JSON-serializable dict."""
     as_of = pd.Timestamp(as_of).normalize()
@@ -178,11 +116,6 @@ def build_dashboard_data(awards, as_of, fiscal_years, min_ic_awards=25):
                          curves, family, current_fy, as_of)}
             per_ic[ic] = entry
         series[family] = per_ic
-
-    comparison = {
-        family: pace_vs_baseline(prepared, curves, family, current_fy, baseline_fys, as_of)
-        for family in FAMILY_ORDER
-    }
 
     ic_totals = {
         family: {ic: int(v) for ic, v in ic_volumes(prepared, family).items()}
@@ -222,5 +155,4 @@ def build_dashboard_data(awards, as_of, fiscal_years, min_ic_awards=25):
             for family, info in curves.items()
         },
         "series": series,
-        "comparison": comparison,
     }

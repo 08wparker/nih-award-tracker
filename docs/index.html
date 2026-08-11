@@ -10,10 +10,11 @@
 <main class="wrap">
 
   <header class="page-head">
-    <h1>New NIH awards by week</h1>
+    <h1>New NIH awards</h1>
     <p class="sub">
-      Type&nbsp;1 (brand-new) awards from NIH RePORTER, placed on a fiscal-week axis so
-      years overlay comparably. Recent weeks are corrected for RePORTER's reporting lag.
+      Type&nbsp;1 (brand-new) awards from NIH RePORTER, on a fiscal-year axis so years
+      overlay comparably — cumulative by default, switchable to weekly. Recent weeks are
+      corrected for RePORTER's reporting lag.
     </p>
     <p class="stamp">
       Data as of <strong id="as-of">—</strong> · <span id="award-count">—</span> awards ·
@@ -31,6 +32,13 @@
       <label id="family-label">Award family</label>
       <div class="segmented" role="radiogroup" aria-labelledby="family-label" id="family-group"></div>
     </div>
+    <div class="control">
+      <label id="view-label">View</label>
+      <div class="segmented" role="radiogroup" aria-labelledby="view-label" id="view-group">
+        <button type="button" role="radio" data-view="cumulative" aria-checked="true">Cumulative</button>
+        <button type="button" role="radio" data-view="weekly" aria-checked="false">Per week</button>
+      </div>
+    </div>
     <div class="control control--check">
       <label class="check">
         <input type="checkbox" id="nowcast-toggle" checked>
@@ -42,7 +50,7 @@
   <section class="figure" aria-labelledby="fig1-title">
     <div class="figure-head">
       <div>
-        <h2 id="fig1-title">Awards issued per week</h2>
+        <h2 id="fig1-title">Awards issued to date</h2>
         <p class="figure-sub" id="fig1-sub">—</p>
       </div>
       <button class="ghost-btn" type="button" data-table-toggle="fig1-table">Table</button>
@@ -54,22 +62,6 @@
     </div>
     <p class="note" id="fig1-note">—</p>
     <div id="fig1-table" class="table-view" hidden></div>
-  </section>
-
-  <section class="figure" aria-labelledby="fig2-title">
-    <div class="figure-head">
-      <div>
-        <h2 id="fig2-title">FY2026 pace, by institute or agency</h2>
-        <p class="figure-sub" id="fig2-sub">—</p>
-      </div>
-      <button class="ghost-btn" type="button" data-table-toggle="fig2-table">Table</button>
-    </div>
-    <div class="chart-holder">
-      <svg id="fig2" role="img" aria-labelledby="fig2-title"></svg>
-      <div id="tooltip2" class="tooltip" hidden></div>
-    </div>
-    <p class="note" id="fig2-note">—</p>
-    <div id="fig2-table" class="table-view" hidden></div>
   </section>
 
   <section class="figure method" aria-labelledby="method-title">

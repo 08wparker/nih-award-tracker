@@ -1,13 +1,16 @@
 /* Dashboard for new NIH awards, corrected for RePORTER's reporting lag.
  *
- * Hand-rolled SVG rather than a charting library: the two figures need specific
- * behaviour (a provisional/settled split along a single line, a masked tail, banded
- * uncertainty) that is more work to talk a general library out of than to draw. No
- * build step and no CDN, so the page also opens straight off disk.
+ * Hand-rolled SVG rather than a charting library: the chart needs specific behaviour
+ * (a provisional/settled split along a single line, a masked tail, banded uncertainty)
+ * that is more work to talk a general library out of than to draw. No build step and
+ * no CDN, so the page also opens straight off disk.
  */
 
 const SVG_NS = "http://www.w3.org/2000/svg";
-const state = { data: null, ic: "NHLBI", family: "r01_equivalent", nowcast: true, hidden: new Set() };
+const state = {
+  data: null, ic: "NHLBI", family: "r01_equivalent",
+  view: "cumulative", nowcast: true, hidden: new Set(),
+};
 
 /* ---------------------------------------------------------------- small helpers */
 
@@ -51,6 +54,79 @@ function segments(values) {
 const linePath = (pts, x, y) =>
   pts.map((p, i) => `${i ? "L" : "M"}${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join("");
 
+/* Build the series actually plotted, for whichever view is selected.
+ *
+ * Cumulative is the default because it answers the question people bring to this data
+ * -- "is this year behind, and by how much?" -- which a spiky weekly line makes you
+ * integrate by eye. Weekly stays available because it shows *when* the gap opened.
+ *
+ * The corrected cumulative sums each week's own corrected value rather than scaling
+ * the running total by one factor: completeness varies sharply across the trailing
+ * weeks, so a single factor would be wrong for nearly all of them. It stops at the
+ * first week too incomplete to correct, since past that point the running total would
+ * silently mix corrected and uncorrected weeks.
+ */
+function buildSeries(entry, meta, edge) {
+  const cumulative = state.view === "cumulative";
+  const out = { counts: {}, corrected: null, low: null, high: null };
+
+  meta.fiscal_years.forEach((fy) => {
+    const raw = entry.counts[fy];
+    const isCurrent = fy === meta.current_fiscal_year;
+    let total = 0;
+    out.counts[fy] = raw.map((v, i) => {
+      if (isCurrent && edge && i + 1 > edge) return null;
+      total += v;
+      return cumulative ? total : v;
+    });
+  });
+
+  const nc = entry.nowcast;
+  const point = [], low = [], high = [];
+
+  // Anchor the corrected line on the last week before it diverges, so it grows out of
+  // the observed line instead of appearing to float above it.
+  const firstProvisional = nc.status.indexOf("provisional");
+  const anchor = firstProvisional <= 0 ? 0 : firstProvisional - 1;
+
+  let acc = 0, accLo = 0, accHi = 0, stopped = false;
+
+  for (let i = 0; i < nc.status.length; i++) {
+    const week = i + 1;
+    const status = nc.status[i];
+    const observed = entry.counts[meta.current_fiscal_year][i];
+
+    if (!cumulative) {
+      const draw = status === "provisional" || (i === anchor && firstProvisional > 0);
+      point.push(status === "provisional" ? nc.point[i] : (draw ? observed : null));
+      low.push(status === "provisional" ? nc.low[i] : null);
+      high.push(status === "provisional" ? nc.high[i] : null);
+      continue;
+    }
+
+    const past = stopped || (edge && week > edge) || firstProvisional < 0;
+    if (status === "masked") stopped = true;
+
+    if (!past && status !== "masked") {
+      if (status === "settled") {
+        acc += observed; accLo += observed; accHi += observed;
+      } else {
+        acc += nc.point[i]; accLo += nc.low[i]; accHi += nc.high[i];
+      }
+    }
+
+    const draw = !past && status !== "masked" && i >= anchor;
+    point.push(draw ? acc : null);
+    low.push(draw ? accLo : null);
+    high.push(draw ? accHi : null);
+  }
+
+  out.corrected = point;
+  out.low = low;
+  out.high = high;
+  return out;
+}
+
 /* ------------------------------------------------------------------- figure one */
 
 function drawWeekly() {
@@ -70,16 +146,16 @@ function drawWeekly() {
   const visible = years.filter((fy) => !state.hidden.has(String(fy)));
   const nc = entry.nowcast;
   const showNowcast = state.nowcast && !state.hidden.has(String(meta.current_fiscal_year));
+  const edge = meta.last_observed_week[String(meta.current_fiscal_year)];
+  const plotted = buildSeries(entry, meta, edge);
 
   // Scale to the observed counts and the point estimate only. The band's upper bound
   // on a barely-reported week runs several times the point estimate, and letting it
   // set the axis would flatten four years of real data to read one uncertain week.
   // The band is clipped to the plot area instead.
   let peak = 1;
-  visible.forEach((fy) => entry.counts[fy].forEach((v) => { if (v > peak) peak = v; }));
-  if (showNowcast) nc.point.forEach((v, i) => {
-    if (v !== null && nc.status[i] === "provisional" && v > peak) peak = v;
-  });
+  visible.forEach((fy) => plotted.counts[fy].forEach((v) => { if (v !== null && v > peak) peak = v; }));
+  if (showNowcast) plotted.corrected.forEach((v) => { if (v !== null && v > peak) peak = v; });
 
   const x = scaleLinear(1, meta.weeks_in_year, pad.l, width - pad.r);
   const y = scaleLinear(0, peak * 1.08, height - pad.b, pad.t);
@@ -89,7 +165,6 @@ function drawWeekly() {
   const muted = cssVar("--text-muted");
 
   /* Shade the stretch of the fiscal year the current-year data does not cover yet. */
-  const edge = meta.last_observed_week[String(meta.current_fiscal_year)];
   if (edge && edge < meta.weeks_in_year) {
     el("rect", {
       x: x(edge), y: pad.t, width: x(meta.weeks_in_year) - x(edge),
@@ -114,7 +189,8 @@ function drawWeekly() {
     x: 12, y: pad.t + (height - pad.t - pad.b) / 2, fill: muted, "font-size": 11,
     "text-anchor": "middle", transform: `rotate(-90 12 ${pad.t + (height - pad.t - pad.b) / 2})`,
   }, svg);
-  yTitle.textContent = "Awards issued that week";
+  yTitle.textContent = state.view === "cumulative"
+    ? "Awards issued to date" : "Awards issued that week";
 
   // Uncertainty band around the lag-corrected estimate, clipped to the plot area.
   const clipId = "plot-clip";
@@ -126,10 +202,10 @@ function drawWeekly() {
   if (showNowcast) {
     const band = [];
     const back = [];
-    nc.status.forEach((s, i) => {
-      if (s !== "provisional") return;
-      band.push([x(i + 1), y(nc.high[i])]);
-      back.unshift([x(i + 1), y(nc.low[i])]);
+    plotted.high.forEach((hi, i) => {
+      if (hi === null || plotted.low[i] === null) return;
+      band.push([x(i + 1), y(hi)]);
+      back.unshift([x(i + 1), y(plotted.low[i])]);
     });
     if (band.length > 1) {
       const pts = band.concat(back).map((p) => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(" ");
@@ -144,11 +220,7 @@ function drawWeekly() {
   years.forEach((fy) => {
     if (state.hidden.has(String(fy))) return;
     const isCurrent = fy === meta.current_fiscal_year;
-    const counts = entry.counts[fy].slice();
-    // Trim the current year at its data edge rather than letting it fall to zero.
-    const trimmed = counts.map((v, i) => (isCurrent && edge && i + 1 > edge ? null : v));
-
-    segments(trimmed).forEach((seg) => {
+    segments(plotted.counts[fy]).forEach((seg) => {
       el("path", {
         d: linePath(seg, x, y), fill: "none", stroke: fyColor(fy),
         "stroke-width": isCurrent ? 2.5 : 1.8, "stroke-linecap": "round",
@@ -159,11 +231,7 @@ function drawWeekly() {
 
   // The corrected estimate, dashed so it never reads as observed data.
   if (showNowcast) {
-    const pts = nc.status.map((s, i) => (s === "provisional" ? nc.point[i] : null));
-    // Join the dashed run to the last settled point so the line does not float free.
-    const lastSettled = nc.status.lastIndexOf("settled");
-    if (lastSettled >= 0) pts[lastSettled] = entry.counts[meta.current_fiscal_year][lastSettled];
-    segments(pts).forEach((seg) => {
+    segments(plotted.corrected).forEach((seg) => {
       el("path", {
         d: linePath(seg, x, y), fill: "none", stroke: fyColor(meta.current_fiscal_year),
         "stroke-width": 2.5, "stroke-dasharray": "6 4", "stroke-linecap": "round",
@@ -171,10 +239,10 @@ function drawWeekly() {
     });
   }
 
-  drawCrosshair(svg, { width, height, pad, x, y, entry, meta, showNowcast, edge });
+  drawCrosshair(svg, { width, height, pad, x, y, entry, meta, showNowcast, edge, plotted });
   renderLegend(meta, showNowcast);
-  updateWeeklyCopy(entry, meta, edge);
-  buildWeeklyTable(entry, meta, edge);
+  updateWeeklyCopy(entry, meta, edge, plotted);
+  buildWeeklyTable(entry, meta, edge, plotted);
 }
 
 function niceTicks(lo, hi) {
@@ -189,7 +257,7 @@ function niceTicks(lo, hi) {
 /* Crosshair + tooltip: the default interaction for a line chart, and the mechanism
  * that lets five overlapping series be read precisely at any week. */
 function drawCrosshair(svg, ctx) {
-  const { width, height, pad, x, y, entry, meta, showNowcast, edge } = ctx;
+  const { width, height, pad, x, y, entry, meta, showNowcast, edge, plotted } = ctx;
   const tip = document.getElementById("tooltip1");
   const holder = svg.parentElement;
 
@@ -221,9 +289,8 @@ function drawCrosshair(svg, ctx) {
     const rows = [];
     meta.fiscal_years.forEach((fy) => {
       if (state.hidden.has(String(fy))) return;
-      const isCurrent = fy === meta.current_fiscal_year;
-      if (isCurrent && edge && week > edge) return;
-      const v = entry.counts[fy][week - 1];
+      const v = plotted.counts[fy][week - 1];
+      if (v === null) return;
       el("circle", { cx: x(week), cy: y(v), r: 4.5, fill: fyColor(fy),
         stroke: cssVar("--surface-1"), "stroke-width": 2 }, dots);
       rows.push({ label: `FY${fy}`, color: fyColor(fy), value: fmt(v) });
@@ -231,17 +298,18 @@ function drawCrosshair(svg, ctx) {
 
     const nc = entry.nowcast;
     let footer = "";
-    if (showNowcast && nc.status[week - 1] === "provisional") {
-      const est = nc.point[week - 1];
+    const est = plotted.corrected[week - 1];
+    if (showNowcast && est !== null && nc.status[week - 1] === "provisional") {
       el("circle", { cx: x(week), cy: y(est), r: 4.5, fill: "none",
         stroke: fyColor(meta.current_fiscal_year), "stroke-width": 2 }, dots);
       rows.push({
         label: `FY${meta.current_fiscal_year} corrected`,
         color: fyColor(meta.current_fiscal_year),
-        value: `${fmt(est)}`,
-        dashed: true,
+        value: fmt(est),
       });
-      footer = `${Math.round(nc.fraction[week - 1] * 100)}% reported so far · 95% range ${fmt(nc.low[week - 1])}–${fmt(nc.high[week - 1])}`;
+      const lo = plotted.low[week - 1], hi = plotted.high[week - 1];
+      footer = `${Math.round(nc.fraction[week - 1] * 100)}% of this week reported so far` +
+        (lo !== null ? ` · 95% range ${fmt(lo)}–${fmt(hi)}` : "");
     } else if (nc.status[week - 1] === "masked" && week <= (edge || 0)) {
       footer = "too little reported to estimate";
     }
@@ -296,8 +364,13 @@ function renderLegend(meta, showNowcast) {
   }
 }
 
-function updateWeeklyCopy(entry, meta, edge) {
+function updateWeeklyCopy(entry, meta, edge, plotted) {
   const label = state.ic === "ALL" ? "all NIH institutes" : state.ic;
+  const cumulative = state.view === "cumulative";
+  const current = meta.current_fiscal_year;
+
+  document.getElementById("fig1-title").textContent =
+    cumulative ? "Awards issued to date" : "Awards issued per week";
   document.getElementById("fig1-sub").textContent =
     `${meta.family_labels[state.family]} · ${label}`;
 
@@ -305,144 +378,61 @@ function updateWeeklyCopy(entry, meta, edge) {
   const provisional = nc.status.filter((s) => s === "provisional").length;
   const masked = nc.status.filter((s, i) => s === "masked" && i + 1 <= (edge || 0)).length;
 
-  const totals = meta.fiscal_years.map((fy) =>
-    `FY${fy} ${entry.counts[fy].reduce((a, b) => a + b, 0).toLocaleString()}`).join(" · ");
+  const fullTotals = {};
+  meta.fiscal_years.forEach((fy) => {
+    fullTotals[fy] = entry.counts[fy].reduce((a, b) => a + b, 0);
+  });
+
+  let lead;
+  if (cumulative) {
+    // Compare like with like: prior years counted only as far into the year as the
+    // current one has run, otherwise a part-year is measured against full years.
+    const throughEdge = {};
+    meta.fiscal_years.forEach((fy) => {
+      throughEdge[fy] = entry.counts[fy].slice(0, edge || 0).reduce((a, b) => a + b, 0);
+    });
+    const baseline = meta.baseline_fiscal_years
+      .map((fy) => throughEdge[fy]).reduce((a, b) => a + b, 0) / meta.baseline_fiscal_years.length;
+    const corrected = plotted.corrected.filter((v) => v !== null).pop();
+    const shown = corrected === undefined ? throughEdge[current] : corrected;
+    const pct = baseline ? Math.round((shown / baseline) * 100) : null;
+
+    lead = `Through week ${edge}: FY${current} has ${fmt(throughEdge[current])} awards observed` +
+      (corrected === undefined ? "" : `, ${fmt(corrected)} after lag correction`) +
+      (pct === null ? "." :
+        ` — ${pct}% of the FY${meta.baseline_fiscal_years[0]}–${meta.baseline_fiscal_years.slice(-1)[0]} average of ${fmt(baseline)} at the same point.`);
+  } else {
+    lead = `Full-year totals: ` + meta.fiscal_years
+      .map((fy) => `FY${fy} ${fullTotals[fy].toLocaleString()}`).join(" · ") + ".";
+  }
 
   document.getElementById("fig1-note").textContent =
-    `Full-year totals: ${totals}. FY${meta.current_fiscal_year} runs to week ${edge} of ${meta.weeks_in_year}; ` +
+    `${lead} FY${current} runs to week ${edge} of ${meta.weeks_in_year}; ` +
     `the last ${provisional} week${provisional === 1 ? "" : "s"} are still filling in and are shown corrected` +
     (masked ? `, and ${masked} week${masked === 1 ? " is" : "s are"} too incomplete to estimate.` : ".");
 }
 
-function buildWeeklyTable(entry, meta, edge) {
-  const head = ["Week", ...meta.fiscal_years.map((fy) => `FY${fy}`), "FY" + meta.current_fiscal_year + " corrected"];
+function buildWeeklyTable(entry, meta, edge, plotted) {
+  const unit = state.view === "cumulative" ? "to date" : "that week";
+  const head = ["Week", ...meta.fiscal_years.map((fy) => `FY${fy}`),
+                `FY${meta.current_fiscal_year} corrected`];
   const rows = [];
   for (let w = 1; w <= meta.weeks_in_year; w++) {
     const cells = meta.fiscal_years.map((fy) => {
-      const isCurrent = fy === meta.current_fiscal_year;
-      if (isCurrent && edge && w > edge) return "";
-      return entry.counts[fy][w - 1];
+      const v = plotted.counts[fy][w - 1];
+      return v === null ? "" : v;
     });
-    const st = entry.nowcast.status[w - 1];
-    const est = st === "provisional" ? fmt(entry.nowcast.point[w - 1])
-      : st === "masked" ? "" : "";
-    if (cells.every((c) => c === "" || c === 0) && !est) continue;
-    rows.push(`<tr><td>${w}</td>${cells.map((c) => `<td>${c === "" ? "" : c}</td>`).join("")}<td class="est">${est}</td></tr>`);
+    const est = plotted.corrected[w - 1];
+    const estCell = est === null ? "" : fmt(est);
+    if (cells.every((c) => c === "" || c === 0) && !estCell) continue;
+    rows.push(`<tr><td>${w}</td>${cells.map((c) => `<td>${c}</td>`).join("")}` +
+              `<td class="est">${estCell}</td></tr>`);
   }
   document.getElementById("fig1-table").innerHTML =
     `<table class="data"><thead><tr>${head.map((h) => `<th>${h}</th>`).join("")}</tr></thead>` +
-    `<tbody>${rows.join("")}</tbody></table>`;
-}
-
-/* ------------------------------------------------------------------- figure two */
-
-function drawComparison() {
-  const { data } = state;
-  const meta = data.meta;
-  const rows = data.comparison[state.family];
-  const svg = document.getElementById("fig2");
-  svg.textContent = "";
-
-  if (!rows.length) {
-    document.getElementById("fig2-note").textContent = "No agency has enough baseline history for this family.";
-    return;
-  }
-
-  const width = svg.clientWidth || 900;
-  const rowH = 21;
-  const pad = { t: 26, r: 92, b: 30, l: 76 };
-  const height = pad.t + pad.b + rows.length * rowH;
-  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
-  svg.setAttribute("height", height);
-
-  const maxPace = Math.max(1.35, ...rows.map((r) => r.pace));
-  const x = scaleLinear(0, maxPace, pad.l, width - pad.r);
-
-  const grid = cssVar("--border");
-  const muted = cssVar("--text-muted");
-  const ink2 = cssVar("--text-secondary");
-
-  // Every mark here is the same entity -- FY2026 -- so it wears FY2026's colour, the
-  // same one it has in figure 1. Colouring by whether an institute is ahead or behind
-  // would encode rank in hue, which makes the palette shift meaning between the two
-  // figures and adds nothing position on the axis is not already saying.
-  const markColor = cssVar("--fy-2026");
-
-  [0, 0.25, 0.5, 0.75, 1, 1.25].filter((t) => t <= maxPace).forEach((t) => {
-    const onPace = t === 1;
-    el("line", {
-      x1: x(t), x2: x(t), y1: pad.t - 8, y2: height - pad.b + 4,
-      stroke: onPace ? muted : grid, "stroke-width": 1,
-      "stroke-dasharray": onPace ? "4 3" : null,
-    }, svg);
-    const label = el("text", {
-      x: x(t), y: pad.t - 14, "text-anchor": "middle",
-      fill: onPace ? ink2 : muted, "font-size": 11,
-      "font-weight": onPace ? 600 : 400,
-    }, svg);
-    label.textContent = onPace ? "on pace" : `${Math.round(t * 100)}%`;
-  });
-
-  rows.forEach((r, i) => {
-    const cy = pad.t + i * rowH + rowH / 2;
-
-    el("line", { x1: x(0), x2: x(r.pace), y1: cy, y2: cy, stroke: markColor,
-      "stroke-width": 2, "stroke-linecap": "round", opacity: .45 }, svg);
-    el("circle", { cx: x(r.pace), cy, r: 5, fill: markColor,
-      stroke: cssVar("--surface-1"), "stroke-width": 2 }, svg);
-
-    const name = el("text", { x: pad.l - 10, y: cy + 4, "text-anchor": "end",
-      fill: ink2, "font-size": 12 }, svg);
-    name.textContent = r.ic;
-
-    const val = el("text", { x: width - pad.r + 10, y: cy + 4, fill: muted, "font-size": 11.5 }, svg);
-    val.textContent = `${Math.round(r.pace * 100)}%  (${r.observed} vs ${Math.round(r.baseline)})`;
-
-    const hit = el("rect", { x: pad.l - 70, y: cy - rowH / 2, width: width - pad.l + 70,
-      height: rowH, fill: "transparent" }, svg);
-    hit.addEventListener("mousemove", (e) => showPaceTip(e, r, meta));
-    hit.addEventListener("mouseleave", () => { document.getElementById("tooltip2").hidden = true; });
-  });
-
-  const median = rows.map((r) => r.pace).sort((a, b) => a - b)[Math.floor(rows.length / 2)];
-  document.getElementById("fig2-sub").textContent =
-    `${meta.family_labels[state.family]} · lag-corrected awards so far this year vs the same point in FY${meta.baseline_fiscal_years[0]}–${meta.baseline_fiscal_years.slice(-1)[0]}`;
-  document.getElementById("fig2-note").textContent =
-    `Each agency is measured against its own recent history, since raw counts across agencies are not comparable ` +
-    `(NCI funds an order of magnitude more R01s than NIDCD). Median agency is at ${Math.round(median * 100)}% of its ` +
-    `normal pace through week ${meta.last_observed_week[String(meta.current_fiscal_year)]}. ` +
-    `Non-NIH HHS agencies that RePORTER covers (AHRQ, FDA, NIOSH, NCIPC) are included. ` +
-    `Agencies with fewer than 5 baseline awards are omitted.`;
-
-  buildComparisonTable(rows, meta);
-}
-
-function showPaceTip(event, r, meta) {
-  const tip = document.getElementById("tooltip2");
-  const holder = event.target.ownerSVGElement.parentElement;
-  const box = holder.getBoundingClientRect();
-  const baseline = Object.entries(r.baseline_by_year)
-    .map(([fy, n]) => `<tr><td>FY${fy}</td><td class="v">${n}</td></tr>`).join("");
-  tip.innerHTML =
-    `<h4>${r.ic}</h4><table>` +
-    `<tr><td>Observed so far</td><td class="v">${r.observed}</td></tr>` +
-    `<tr><td>Lag-corrected</td><td class="v">${r.corrected}</td></tr>` +
-    `<tr><td>Baseline mean</td><td class="v">${r.baseline}</td></tr>` +
-    `<tr><td><strong>Pace</strong></td><td class="v"><strong>${Math.round(r.pace * 100)}%</strong></td></tr>` +
-    `</table><div class="muted" style="margin-top:6px">Same point in prior years</div>` +
-    `<table>${baseline}</table>`;
-  tip.hidden = false;
-  tip.style.left = `${Math.min(event.clientX - box.left + 14, holder.clientWidth - tip.offsetWidth - 4)}px`;
-  tip.style.top = `${Math.max(4, event.clientY - box.top - 40)}px`;
-}
-
-function buildComparisonTable(rows, meta) {
-  const head = ["Agency", "Observed", "Corrected", "Baseline mean", "Pace"];
-  const body = rows.map((r) =>
-    `<tr><td>${r.ic}</td><td>${r.observed}</td><td class="est">${r.corrected}</td>` +
-    `<td>${r.baseline}</td><td>${Math.round(r.pace * 100)}%</td></tr>`).join("");
-  document.getElementById("fig2-table").innerHTML =
-    `<table class="data"><thead><tr>${head.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${body}</tbody></table>`;
+    `<tbody>${rows.join("")}</tbody></table>` +
+    `<p class="note">Awards ${unit}, by fiscal week. Corrected column shows the ` +
+    `lag-adjusted estimate where the week is only partly reported.</p>`;
 }
 
 /* ---------------------------------------------------------------------- chrome */
@@ -492,9 +482,17 @@ function buildControls() {
       [...group.children].forEach((c) => c.setAttribute("aria-checked", c === btn));
       refreshIcLabels();
       drawWeekly();
-      drawComparison();
     });
     group.appendChild(btn);
+  });
+
+  const viewGroup = document.getElementById("view-group");
+  [...viewGroup.children].forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.view = btn.dataset.view;
+      [...viewGroup.children].forEach((c) => c.setAttribute("aria-checked", c === btn));
+      drawWeekly();
+    });
   });
 
   document.getElementById("nowcast-toggle").addEventListener("change", (e) => {
@@ -516,7 +514,6 @@ function buildControls() {
     document.documentElement.setAttribute("data-theme", dark ? "light" : "dark");
     try { localStorage.setItem("theme", dark ? "light" : "dark"); } catch (_) {}
     drawWeekly();
-    drawComparison();
   });
 }
 
@@ -545,20 +542,17 @@ async function init() {
   document.getElementById("as-of").textContent = state.data.meta.as_of;
   document.getElementById("award-count").textContent =
     state.data.meta.total_awards.toLocaleString();
-  document.getElementById("fig2-title").textContent =
-    `FY${state.data.meta.current_fiscal_year} pace, by institute or agency`;
 
   if (!state.data.series[state.family][state.ic]) state.ic = "ALL";
 
   buildControls();
   buildCompletenessTable();
   drawWeekly();
-  drawComparison();
 
   let timer;
   window.addEventListener("resize", () => {
     clearTimeout(timer);
-    timer = setTimeout(() => { drawWeekly(); drawComparison(); }, 150);
+    timer = setTimeout(drawWeekly, 150);
   });
 }
 

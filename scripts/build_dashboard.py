@@ -49,15 +49,6 @@ def main():
     print()
     print("completeness (% of awards visible within k days):")
     print(lag.curve_summary(curves).to_string())
-    print()
-    for family in data["meta"]["families"]:
-        rows = data["comparison"][family]
-        if not rows:
-            continue
-        worst = rows[0]
-        print("{:<16s} FY{} pace vs baseline: median {:.2f}  slowest {} at {:.2f}".format(
-            family, data["meta"]["current_fiscal_year"],
-            sorted(r["pace"] for r in rows)[len(rows) // 2], worst["ic"], worst["pace"]))
 
 
 if __name__ == "__main__":
