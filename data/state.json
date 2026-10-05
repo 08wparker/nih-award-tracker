@@ -1,6 +1,6 @@
 {
   "last_bootstrap": "2026-08-09",
-  "last_refresh": "2026-10-04",
+  "last_refresh": "2026-10-05",
   "fiscal_years": [
     2022,
     2023,
@@ -8,10 +8,10 @@
     2025,
     2026
   ],
-  "awards": 44030,
-  "last_mode": "reconcile",
-  "last_run_new": 0,
-  "last_run_updated": 17,
-  "last_run_date_added_changed": 0,
+  "awards": 44155,
+  "last_mode": "incremental",
+  "last_run_new": 125,
+  "last_run_updated": 1,
+  "last_run_date_added_changed": 1,
   "last_reconcile": "2026-10-04"
 }
